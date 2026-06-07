@@ -1,4 +1,6 @@
-type BencodeElem = BencodeStr | BencodeInt | BencodeDict | BencodeList;
+export type BencodeElem = {type: BencodeType, val: BencodeVal};
+export enum BencodeType { BStr, BInt, BDict, BList };
+type BencodeVal = BencodeStr | BencodeInt | BencodeDict | BencodeList;
 type BencodeStr = string;
 type BencodeInt = number;
 type BencodeDict = Map<BencodeElem, BencodeElem>;
@@ -10,6 +12,18 @@ export function bencode_decode(bstr: string): BencodeElem {
     throw new Error("trailing data");
   }
   return res;
+}
+
+export function bencode_encode(b: BencodeElem): string {
+  switch (b.type) {
+    case BencodeType.BInt: return `i${b.val}e`;
+    case BencodeType.BStr: return `${(b.val as BencodeStr).length}:${b.val}`;
+    case BencodeType.BList: return `l${(b.val as BencodeList).map(bencode_encode).join("")}e`;
+    case BencodeType.BDict:
+      let encode_kv = ([k, v]: [BencodeElem, BencodeElem]) => `${bencode_encode(k)}${bencode_encode(v)}`;
+      let res = Array.from(b.val as BencodeDict, encode_kv).join("");
+      return `d${res}e`;
+  }
 }
 
 function bencode_decode_next_elem(bstr: string, pos: number): [BencodeElem, number] {
@@ -30,7 +44,7 @@ function bencode_decode_next_elem(bstr: string, pos: number): [BencodeElem, numb
   }
 }
 
-function bencode_decode_int(bstr: string, pos: number): [BencodeInt, number] {
+function bencode_decode_int(bstr: string, pos: number): [BencodeElem, number] {
   if (bstr.charAt(pos) !== "i") {
     throw new Error("could not find number to decode");
   }
@@ -42,10 +56,11 @@ function bencode_decode_int(bstr: string, pos: number): [BencodeInt, number] {
   if (!/^(0|(-?[1-9]\d*))$/.test(ntxt)) {
     throw new Error("invalid bencode number");
   }
-  return [Number(ntxt), end+1]
+  const e = {type: BencodeType.BInt, val: Number(ntxt)};
+  return [e, end+1]
 }
 
-function bencode_decode_str(bstr: string, pos: number): [BencodeStr, number] {
+function bencode_decode_str(bstr: string, pos: number): [BencodeElem, number] {
   const mid = bstr.indexOf(":", pos);
   if (mid === -1) {
     throw new Error("can't find ':' separator");
@@ -59,36 +74,40 @@ function bencode_decode_str(bstr: string, pos: number): [BencodeStr, number] {
   if (str.length !== len) {
     throw new Error("Unexpected EOF");
   }
-  return [str, mid+len+1];
+  const e = {type: BencodeType.BStr, val: str};
+  return [e, mid+len+1];
 }
 
-function bencode_decode_dict(bstr: string, pos: number): [BencodeDict, number] {
+function bencode_decode_dict(bstr: string, pos: number): [BencodeElem, number] {
   if (bstr.charAt(pos) !== "d") {
     throw new Error("no bencode dictionary found");
   }
   let res: BencodeDict = new Map();
   let p = pos+1;
   let k, v: BencodeElem;
-  let prevk: BencodeElem = "";
+  let prevk: BencodeVal = "";
   while (bstr.charAt(p) !== "e") {
     [k, p] = bencode_decode_next_elem(bstr, p);
-    if (!isBencodeStr(k)) {
+    if (k.type !== BencodeType.BStr) {
       throw new Error("map key is not a string");
     }
-    if (res.has(k)) {
-      throw new Error("duplicate key");
+    for (const k2 of res.keys()) {
+      if (k2.val == k.val) {
+        throw new Error("duplicate key");
+      }
     }
-    if (k < prevk) {
+    if (k.val < prevk) {
       throw new Error("keys not ordered");
     }
-    prevk = k;
+    prevk = k.val;
     [v, p] = bencode_decode_next_elem(bstr, p);
     res.set(k, v);
   }
-  return [res, p+1];
+  const e = {type: BencodeType.BDict, val: res};
+  return [e, p+1];
 }
 
-function bencode_decode_list(bstr: string, pos: number): [BencodeList, number] {
+function bencode_decode_list(bstr: string, pos: number): [BencodeElem, number] {
   if (bstr.charAt(pos) !== "l") {
     throw new Error("no bencode list found");
   }
@@ -99,9 +118,6 @@ function bencode_decode_list(bstr: string, pos: number): [BencodeList, number] {
     [elem, p] = bencode_decode_next_elem(bstr, p);
     res.push(elem);
   }
-  return [res, p+1];
-}
-
-function isBencodeStr(x: BencodeElem): boolean {
-  return typeof x === "string";
+  const e = {type: BencodeType.BList, val: res};
+  return [e, p+1];
 }
