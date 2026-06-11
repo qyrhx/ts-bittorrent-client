@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { bencode_encode, bencode_decode, BencodeType } from "./bencode";
+import { bencode_encode, bencode_decode, BencodeType } from "./bencode.js";
 
 const throws = (fn: () => unknown) => assert.throws(fn);
 
@@ -128,7 +128,7 @@ describe("lists", () => {
   it("decodes list containing a dict", () => {
     assert.deepEqual(
       bencode_decode("ld1:ki1eee"),
-      blist([bdict([[bstr("k"), bint(1)]])])
+      blist([bdict([["k", bint(1)]])])
     );
   });
 
@@ -155,7 +155,7 @@ describe("dictionaries", () => {
   it("decodes single key-value pair (string → integer)", () => {
     assert.deepEqual(
       bencode_decode("d3:fooi42ee"),
-      bdict([[bstr("foo"), bint(42)]])
+      bdict([["foo", bint(42)]])
     );
   });
 
@@ -163,8 +163,8 @@ describe("dictionaries", () => {
     assert.deepEqual(
       bencode_decode("d7:meaningi42e4:wiki7:bencodee"),
       bdict([
-        [bstr("meaning"), bint(42)],
-        [bstr("wiki"), bstr("bencode")],
+        ["meaning", bint(42)],
+        ["wiki", bstr("bencode")],
       ])
     );
   });
@@ -172,19 +172,19 @@ describe("dictionaries", () => {
   it("decodes dict with list value", () => {
     assert.deepEqual(
       bencode_decode("d4:listli1ei2eee"),
-      bdict([[bstr("list"), blist([bint(1), bint(2)])]])
+      bdict([["list", blist([bint(1), bint(2)])]])
     );
   });
 
   it("decodes nested dict", () => {
     assert.deepEqual(
       bencode_decode("d5:outerd5:inneri1eee"),
-      bdict([[bstr("outer"), bdict([[bstr("inner"), bint(1)]])]])
+      bdict([["outer", bdict([["inner", bint(1)]])]])
     );
   });
 
   it("decodes dict with empty-string key", () => {
-    assert.deepEqual(bencode_decode("d0:i0ee"), bdict([[bstr(""), bint(0)]]));
+    assert.deepEqual(bencode_decode("d0:i0ee"), bdict([["", bint(0)]]));
   });
 
   // Error cases
@@ -232,8 +232,8 @@ describe("complex structures", () => {
     assert.deepEqual(
       bencode_decode("d6:lengthi1024e4:name8:test.txte"),
       bdict([
-        [bstr("length"), bint(1024)],
-        [bstr("name"), bstr("test.txt")],
+        ["length", bint(1024)],
+        ["name", bstr("test.txt")],
       ])
     );
   });
@@ -242,8 +242,8 @@ describe("complex structures", () => {
     assert.deepEqual(
       bencode_decode("ld1:ai1eed1:bi2eee"),
       blist([
-        bdict([[bstr("a"), bint(1)]]),
-        bdict([[bstr("b"), bint(2)]]),
+        bdict([["a", bint(1)]]),
+        bdict([["b", bint(2)]]),
       ])
     );
   });

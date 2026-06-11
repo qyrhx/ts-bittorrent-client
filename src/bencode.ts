@@ -1,9 +1,12 @@
-export type BencodeElem = {type: BencodeType, val: BencodeVal};
+export type BencodeElem = {
+  type: BencodeType,
+  val: BencodeVal
+};
 export enum BencodeType { BStr, BInt, BDict, BList };
 type BencodeVal = BencodeStr | BencodeInt | BencodeDict | BencodeList;
 type BencodeStr = string;
 type BencodeInt = number;
-type BencodeDict = Map<BencodeElem, BencodeElem>;
+type BencodeDict = Map<string, BencodeElem>;
 type BencodeList = BencodeElem[];
 
 export function bencode_decode(bstr: string): BencodeElem {
@@ -20,7 +23,10 @@ export function bencode_encode(b: BencodeElem): string {
     case BencodeType.BStr: return `${(b.val as BencodeStr).length}:${b.val}`;
     case BencodeType.BList: return `l${(b.val as BencodeList).map(bencode_encode).join("")}e`;
     case BencodeType.BDict:
-      let encode_kv = ([k, v]: [BencodeElem, BencodeElem]) => `${bencode_encode(k)}${bencode_encode(v)}`;
+      let encode_kv = ([k, v]: [string, BencodeElem]) => {
+        const enck = bencode_encode({type: BencodeType.BStr, val: k});
+        return `${enck}${bencode_encode(v)}`;
+      }
       let res = Array.from(b.val as BencodeDict, encode_kv).join("");
       return `d${res}e`;
   }
@@ -91,17 +97,16 @@ function bencode_decode_dict(bstr: string, pos: number): [BencodeElem, number] {
     if (k.type !== BencodeType.BStr) {
       throw new Error("map key is not a string");
     }
-    for (const k2 of res.keys()) {
-      if (k2.val == k.val) {
-        throw new Error("duplicate key");
-      }
+    if (res.has(k.val as string)) {
+      throw new Error("duplicate key");
     }
+
     if (k.val < prevk) {
       throw new Error("keys not ordered");
     }
     prevk = k.val;
     [v, p] = bencode_decode_next_elem(bstr, p);
-    res.set(k, v);
+    res.set(k.val as string, v);
   }
   const e = {type: BencodeType.BDict, val: res};
   return [e, p+1];
