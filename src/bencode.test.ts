@@ -1,14 +1,9 @@
 import { describe, it } from "node:test";
+import { Buffer } from "node:buffer";
 import assert from "node:assert/strict";
-import { bencode_encode, bencode_decode, BencodeType } from "./bencode.js";
+import { bencode_encode, bencode_decode, BencodeVal } from "./bencode.js";
 
 const throws = (fn: () => unknown) => assert.throws(fn);
-
-// helpers
-const bint = (val: number) => ({ type: BencodeType.BInt, val });
-const bstr = (val: string) => ({ type: BencodeType.BStr, val });
-const blist = (val: unknown[]) => ({ type: BencodeType.BList, val });
-const bdict = (entries: [unknown, unknown][]) => ({ type: BencodeType.BDict, val: new Map(entries) });
 
 // -- Decoder
 
@@ -16,23 +11,23 @@ const bdict = (entries: [unknown, unknown][]) => ({ type: BencodeType.BDict, val
 
 describe("integers", () => {
   it("decodes zero", () => {
-    assert.deepEqual(bencode_decode("i0e"), bint(0));
+    assert.deepEqual(bencode_decode("i0e"), 0);
   });
 
   it("decodes positive integer", () => {
-    assert.deepEqual(bencode_decode("i42e"), bint(42));
+    assert.deepEqual(bencode_decode("i42e"), 42);
   });
 
   it("decodes negative integer", () => {
-    assert.deepEqual(bencode_decode("i-42e"), bint(-42));
+    assert.deepEqual(bencode_decode("i-42e"), -42);
   });
 
   it("decodes large integer", () => {
-    assert.deepEqual(bencode_decode("i1000000e"), bint(1_000_000));
+    assert.deepEqual(bencode_decode("i1000000e"), 1_000_000);
   });
 
   it("decodes single digit 1", () => {
-    assert.deepEqual(bencode_decode("i1e"), bint(1));
+    assert.deepEqual(bencode_decode("i1e"), 1);
   });
 
   // Error cases
@@ -65,27 +60,27 @@ describe("integers", () => {
 
 describe("byte strings", () => {
   it("decodes empty string", () => {
-    assert.deepEqual(bencode_decode("0:"), bstr(""));
+    assert.deepEqual(bencode_decode("0:"), Buffer.from(""));
   });
 
   it("decodes simple ASCII string", () => {
-    assert.deepEqual(bencode_decode("7:bencode"), bstr("bencode"));
+    assert.deepEqual(bencode_decode("7:bencode"), Buffer.from("bencode"));
   });
 
   it("decodes single character", () => {
-    assert.deepEqual(bencode_decode("1:x"), bstr("x"));
+    assert.deepEqual(bencode_decode("1:x"), Buffer.from("x"));
   });
 
   it("decodes string containing spaces", () => {
-    assert.deepEqual(bencode_decode("5:hello"), bstr("hello"));
+    assert.deepEqual(bencode_decode("5:hello"), Buffer.from("hello"));
   });
 
   it("decodes string containing colons", () => {
-    assert.deepEqual(bencode_decode("3:a:b"), bstr("a:b"));
+    assert.deepEqual(bencode_decode("3:a:b"), Buffer.from("a:b"));
   });
 
   it("decodes string containing 'e' (not confused with terminator)", () => {
-    assert.deepEqual(bencode_decode("1:e"), bstr("e"));
+    assert.deepEqual(bencode_decode("1:e"), Buffer.from("e"));
   });
 
   // Error cases
@@ -106,36 +101,36 @@ describe("byte strings", () => {
 
 describe("lists", () => {
   it("decodes empty list", () => {
-    assert.deepEqual(bencode_decode("le"), blist([]));
+    assert.deepEqual(bencode_decode("le"), []);
   });
 
   it("decodes list of one string", () => {
-    assert.deepEqual(bencode_decode("l7:bencodee"), blist([bstr("bencode")]));
+    assert.deepEqual(bencode_decode("l7:bencodee"), [Buffer.from("bencode")]);
   });
 
   it("decodes list of string and negative integer", () => {
-    assert.deepEqual(bencode_decode("l7:bencodei-20ee"), blist([bstr("bencode"), bint(-20)]));
+    assert.deepEqual(bencode_decode("l7:bencodei-20ee"), [Buffer.from("bencode"), -20]);
   });
 
   it("decodes list of integers", () => {
-    assert.deepEqual(bencode_decode("li1ei2ei3ee"), blist([bint(1), bint(2), bint(3)]));
+    assert.deepEqual(bencode_decode("li1ei2ei3ee"), [1, 2, 3]);
   });
 
   it("decodes nested list", () => {
-    assert.deepEqual(bencode_decode("ll1:aee"), blist([blist([bstr("a")])]));
+    assert.deepEqual(bencode_decode("ll1:aee"), [[Buffer.from("a")]]);
   });
 
   it("decodes list containing a dict", () => {
     assert.deepEqual(
       bencode_decode("ld1:ki1eee"),
-      blist([bdict([["k", bint(1)]])])
+      [new Map<string, BencodeVal>([["k", 1]])]
     );
   });
 
   it("decodes heterogeneous list", () => {
     assert.deepEqual(
       bencode_decode("li42e3:foolee"),
-      blist([bint(42), bstr("foo"), blist([])])
+      [42, Buffer.from("foo"), []]
     );
   });
 
@@ -149,22 +144,22 @@ describe("lists", () => {
 
 describe("dictionaries", () => {
   it("decodes empty dict", () => {
-    assert.deepEqual(bencode_decode("de"), bdict([]));
+    assert.deepEqual(bencode_decode("de"), new Map([]));
   });
 
   it("decodes single key-value pair (string → integer)", () => {
     assert.deepEqual(
       bencode_decode("d3:fooi42ee"),
-      bdict([["foo", bint(42)]])
+      new Map<string, BencodeVal>([["foo", 42]])
     );
   });
 
   it("decodes basic example (meaning→42, wiki→bencode)", () => {
     assert.deepEqual(
       bencode_decode("d7:meaningi42e4:wiki7:bencodee"),
-      bdict([
-        ["meaning", bint(42)],
-        ["wiki", bstr("bencode")],
+      new Map<string, BencodeVal>([
+        ["meaning", 42],
+        ["wiki", Buffer.from("bencode")],
       ])
     );
   });
@@ -172,19 +167,21 @@ describe("dictionaries", () => {
   it("decodes dict with list value", () => {
     assert.deepEqual(
       bencode_decode("d4:listli1ei2eee"),
-      bdict([["list", blist([bint(1), bint(2)])]])
+      new Map<string, BencodeVal>([["list", [1, 2]]])
     );
   });
 
   it("decodes nested dict", () => {
     assert.deepEqual(
       bencode_decode("d5:outerd5:inneri1eee"),
-      bdict([["outer", bdict([["inner", bint(1)]])]])
+      new Map<string, BencodeVal>(
+        [["outer", new Map<string, BencodeVal>([["inner", 1]])]]
+      )
     );
   });
 
   it("decodes dict with empty-string key", () => {
-    assert.deepEqual(bencode_decode("d0:i0ee"), bdict([["", bint(0)]]));
+    assert.deepEqual(bencode_decode("d0:i0ee"), new Map<string, BencodeVal>([["", 0]]));
   });
 
   // Error cases
@@ -231,28 +228,24 @@ describe("complex structures", () => {
   it("decodes a torrent-like info dict", () => {
     assert.deepEqual(
       bencode_decode("d6:lengthi1024e4:name8:test.txte"),
-      bdict([
-        ["length", bint(1024)],
-        ["name", bstr("test.txt")],
-      ])
-    );
+      new Map<string, BencodeVal>(
+        [["length", 1024],
+         ["name", Buffer.from("test.txt")]
+        ]
+      ));
   });
 
   it("decodes list of dicts", () => {
     assert.deepEqual(
       bencode_decode("ld1:ai1eed1:bi2eee"),
-      blist([
-        bdict([["a", bint(1)]]),
-        bdict([["b", bint(2)]]),
-      ])
+      [new Map<string, BencodeVal>([["a", 1]]),
+       new Map<string, BencodeVal>([["b", 2]])
+      ]
     );
   });
 
   it("decodes deeply nested structure", () => {
-    assert.deepEqual(
-      bencode_decode("llli42eeee"),
-      blist([blist([blist([bint(42)])])])
-    );
+    assert.deepEqual(bencode_decode("llli42eeee"), [[[42]]]);
   });
 });
 
