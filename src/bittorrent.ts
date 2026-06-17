@@ -1,5 +1,7 @@
 import * as bc from "./bencode.js";
-import fs from 'node:fs';
+import * as u from "./utils.js"
+import fs from "node:fs";
+import c from "node:crypto";
 
 export type Bittorrent = {
   announce: string,
@@ -25,36 +27,49 @@ export type FileLenAndPath = {
   path: string[]
 };
 
-export function read_bittorrent_file(filepath: string): Bittorrent {
+export function read_bittorrent_file(filepath: string): [Bittorrent, Uint8Array] {
   const data = fs.readFileSync(filepath);
   const b = bc.bencode_decode_buff(data);
-  return bencodeVal_to_bittorrent(b);
+  u.throw_if_val_wrong_type(b instanceof Map);
+  const info_hash = c.createHash("sha1")
+    .update(extract_info(b as bc.BencodeDict))
+    .digest();
+  return [bencodeVal_to_bittorrent(b), info_hash];
+}
+
+function extract_info(d: bc.BencodeDict): string {
+  u.throw_if_not_has(d, "info");
+  return bc.bencode_encode(d.get("info")! as bc.BencodeDict);
 }
 
 export function bencodeVal_to_bittorrent(b: bc.BencodeVal): Bittorrent {
   let res: Bittorrent;
-  throw_if_val_wrong_type(b instanceof Map);
+  u.throw_if_val_wrong_type(b instanceof Map);
   const d = b as bc.BencodeDict;
-  throw_if_not_has(d, "announce");
-  throw_if_val_wrong_type(d.get("announce")! instanceof Uint8Array);
-  throw_if_not_has(d, "info");
+  u.throw_if_not_has(d, "announce");
+  u.throw_if_val_wrong_type(d.get("announce")! instanceof Uint8Array);
+  u.throw_if_not_has(d, "info");
   const a = d.get("announce")! as Uint8Array;
   let i;
-  if (is_single_file_torrent(b)) {
+  if (is_single_file_torrent(b))
     i = bencodeVal_to_SingleFileInto(d.get("info")!);
-  }
   else
     i = bencodeVal_to_MultipleFilesInto(d.get("info")!);
   return {announce: new TextDecoder().decode(a), info: i};
 }
 
+export function bittorrent_to_bencodeVal(b: Bittorrent): bc.BencodeVal {
+  let res: bc.BencodeDict = new Map();
+  return res;
+}
+
 export function bencodeVal_to_SingleFileInto(b: bc.BencodeVal): SingleFileInfo {
-  throw_if_val_wrong_type(b instanceof Map);
+  u.throw_if_val_wrong_type(b instanceof Map);
   const d = b as bc.BencodeDict;
-  throw_if_not_has(d, "piece length");
-  throw_if_not_has(d, "pieces");
-  throw_if_not_has(d, "length");
-  throw_if_not_has(d, "name");
+  u.throw_if_not_has(d, "piece length");
+  u.throw_if_not_has(d, "pieces");
+  u.throw_if_not_has(d, "length");
+  u.throw_if_not_has(d, "name");
   const hashes_buff = d.get("pieces")! as Uint8Array;
   return {
     len: d.get("length")! as number,
@@ -65,13 +80,13 @@ export function bencodeVal_to_SingleFileInto(b: bc.BencodeVal): SingleFileInfo {
 }
 
 export function bencodeVal_to_MultipleFilesInto(b: bc.BencodeVal): MultipleFilesInfo {
-  throw_if_val_wrong_type(b instanceof Map);
+  u.throw_if_val_wrong_type(b instanceof Map);
   const d = b as bc.BencodeDict;
-  throw_if_not_has(d, "files");
-  throw_if_val_wrong_type(Array.isArray(d.get("files")));
-  throw_if_not_has(d, "piece length");
-  throw_if_not_has(d, "pieces");
-  throw_if_not_has(d, "name");
+  u.throw_if_not_has(d, "files");
+  u.throw_if_val_wrong_type(Array.isArray(d.get("files")));
+  u.throw_if_not_has(d, "piece length");
+  u.throw_if_not_has(d, "pieces");
+  u.throw_if_not_has(d, "name");
   const hashes_buff = d.get("pieces")! as Uint8Array;
   const files = d.get("files")! as bc.BencodeDict[];
   return {
@@ -82,16 +97,28 @@ export function bencodeVal_to_MultipleFilesInto(b: bc.BencodeVal): MultipleFiles
   };
 }
 
+export function is_single_file_bittorrent(b: Bittorrent): boolean {
+  return "files" in b.info;
+}
+
+function is_single_file_torrent(b: bc.BencodeVal): boolean {
+  u.throw_if_val_wrong_type(b instanceof Map);
+  const d = b as bc.BencodeDict;
+  u.throw_if_not_has(d, "info");
+  u.throw_if_val_wrong_type(d.get("info")! instanceof Map);
+  return !(d.get("info") as bc.BencodeDict).has("files");
+}
+
 function torrent_extract_files(files: bc.BencodeDict[]): FileLenAndPath[] {
   let res: FileLenAndPath[] = [];
   for (const d of files) {
-    throw_if_not_has(d, "length");
-    throw_if_not_has(d, "path");
-    throw_if_val_wrong_type(typeof d.get("length")! === "number");
-    throw_if_val_wrong_type(Array.isArray(d.get("path")!));
+    u.throw_if_not_has(d, "length");
+    u.throw_if_not_has(d, "path");
+    u.throw_if_val_wrong_type(typeof d.get("length")! === "number");
+    u.throw_if_val_wrong_type(Array.isArray(d.get("path")!));
     let p: string[] = [];
     for (const e of d.get("path")! as bc.BencodeVal[]) {
-      throw_if_val_wrong_type(e instanceof Uint8Array);
+      u.throw_if_val_wrong_type(e instanceof Uint8Array);
       p.push(new TextDecoder().decode(e as Uint8Array));
     }
     res.push({
@@ -102,28 +129,10 @@ function torrent_extract_files(files: bc.BencodeDict[]): FileLenAndPath[] {
   return res;
 }
 
-function throw_if_not_has(d: Map<string, unknown>, k: string): void {
-  if (!d.has(k))
-    throw Error(`'${k}' does not exist in dictionary ${d}`);
-}
-
-function throw_if_val_wrong_type(pred: boolean): void {
-  if (!pred)
-    throw Error(`Type error.`);
-}
-
 function split_into_20byte_chunks(data: Uint8Array): Uint8Array[] {
   const chunks: Uint8Array[] = [];
   for (let i = 0; i < data.length; i += 20) {
     chunks.push(data.slice(i, i + 20));
   }
   return chunks;
-}
-
-function is_single_file_torrent(b: bc.BencodeVal): boolean {
-  throw_if_val_wrong_type(b instanceof Map);
-  const d = b as bc.BencodeDict;
-  throw_if_not_has(d, "info");
-  throw_if_val_wrong_type(d.get("info")! instanceof Map);
-  return !(d.get("info") as bc.BencodeDict).has("files");
 }

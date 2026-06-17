@@ -1,5 +1,11 @@
 import { Bittorrent } from "./bittorrent.js";
 
+export function escape_bytes(bytes: Uint8Array): string {
+  return [...bytes]
+    .map(b => "%" + b.toString(16).padStart(2, "0").toUpperCase())
+    .join("");
+}
+
 export function prettyPrintTorrent(t: Bittorrent): string {
   const info = t.info;
 
@@ -31,4 +37,14 @@ export function prettyPrintTorrent(t: Bittorrent): string {
   }
 
   return out;
+}
+
+export function throw_if_not_has(d: Map<string, unknown>, k: string): void {
+  if (!d.has(k))
+    throw Error(`'${k}' does not exist in dictionary ${d}`);
+}
+
+export function throw_if_val_wrong_type(pred: boolean): void {
+  if (!pred)
+    throw Error(`Type error.`);
 }

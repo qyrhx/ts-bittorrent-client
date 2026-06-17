@@ -1,7 +1,14 @@
 import { Buffer } from "node:buffer";
+import fs from "node:fs";
+import c from "node:crypto";
 
 export type BencodeVal = Uint8Array | number | BencodeDict | BencodeVal[];
 export type BencodeDict = Map<string, BencodeVal>;
+
+export function bencode_read_file(filepath: string): BencodeVal {
+  const data = fs.readFileSync(filepath);
+  return bencode_decode_buff(data);
+}
 
 export function bencode_decode_buff(b: Uint8Array): BencodeVal {
   const [res, l] = bencode_decode_next_elem(b, 0);
@@ -44,12 +51,9 @@ function bencode_decode_next_elem(b: Uint8Array, pos: number): [BencodeVal, numb
   else if (b.at(pos) === "l".codePointAt(0)) {
     return bencode_decode_list(b, pos);
   }
-  else /*if (!Number.isNaN(b.at(pos)))*/ {
+  else {
     return bencode_decode_str(b, pos);
   }
-  // else {
-  //   throw new Error("invalid bencode string");
-  // }
 }
 
 function bencode_decode_int(b: Uint8Array, pos: number): [BencodeVal, number] {
@@ -106,7 +110,11 @@ function bencode_decode_dict(b: Uint8Array, pos: number): [BencodeVal, number] {
       throw new Error("keys not ordered");
     }
     prevk = k;
+    const prevp = p;
     [v, p] = bencode_decode_next_elem(b, p);
+    if (kstr === "info") {
+      const info_hash = c.hash("sha1", b.slice(prevp, p).toString());
+    }
     res.set(kstr, v);
   }
   return [res, p+1];
