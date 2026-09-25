@@ -1,9 +1,12 @@
 import { Buffer } from "node:buffer";
 import fs from "node:fs";
-import c from "node:crypto";
 
 export type BencodeVal = Uint8Array | number | BencodeDict | BencodeVal[];
 export type BencodeDict = Map<string, BencodeVal>;
+
+function bytesToString(b: Uint8Array): string {
+  return Buffer.from(b).toString();
+}
 
 export function bencode_read_file(filepath: string): BencodeVal {
   const data = fs.readFileSync(filepath);
@@ -30,7 +33,7 @@ export function bencode_encode(b: BencodeVal): string {
   if (typeof b === "number")
     return `i${b}e`;
   if (b instanceof Uint8Array)
-    return `${b.length}:${b}`;
+    return `${b.length}:${bytesToString(b)}`;
   if (Array.isArray(b))
     return `l${b.map(bencode_encode).join("")}e`;
   else {
@@ -65,10 +68,11 @@ function bencode_decode_int(b: Uint8Array, pos: number): [BencodeVal, number] {
     throw new Error("unterminated integer");
   }
   const ntxt = b.slice(pos + 1, end);
-  if (!/^(0|(-?[1-9]\d*))$/.test(ntxt.toString())) {
+  const ntxtStr = bytesToString(ntxt);
+  if (!/^(0|(-?[1-9]\d*))$/.test(ntxtStr)) {
     throw new Error("invalid bencode number");
   }
-  return [Number(ntxt), end+1]
+  return [Number(ntxtStr), end+1]
 }
 
 function bencode_decode_str(b: Uint8Array, pos: number): [BencodeVal, number] {
@@ -76,7 +80,7 @@ function bencode_decode_str(b: Uint8Array, pos: number): [BencodeVal, number] {
   if (mid === -1) {
     throw new Error("can't find ':' separator");
   }
-  const lenstr: string = b.slice(pos, mid).toString();
+  const lenstr: string = bytesToString(b.slice(pos, mid));
   if (!/^\d+$/.test(lenstr)) {
     throw new Error("invalid length for string");
   }
@@ -101,7 +105,7 @@ function bencode_decode_dict(b: Uint8Array, pos: number): [BencodeVal, number] {
     if (!(k instanceof Uint8Array)) {
       throw new Error("map key is not a string");
     }
-    const kstr = k.toString();
+    const kstr = bytesToString(k);
     if (res.has(kstr)) {
       throw new Error("duplicate key");
     }
@@ -112,12 +116,43 @@ function bencode_decode_dict(b: Uint8Array, pos: number): [BencodeVal, number] {
     prevk = k;
     const prevp = p;
     [v, p] = bencode_decode_next_elem(b, p);
-    if (kstr === "info") {
-      const info_hash = c.hash("sha1", b.slice(prevp, p).toString());
-    }
     res.set(kstr, v);
   }
   return [res, p+1];
+}
+
+/**
+ * Scan a top-level bencoded dictionary and return the raw encoded bytes
+ * of the value stored under `key`, without re-encoding anything.
+ *
+ * This exists because the BitTorrent info-hash must be computed over the
+ * *original* bytes of the "info" dict exactly as they appeared in the
+ * .torrent file. Decoding into a Map and re-encoding it can only
+ * reproduce those bytes if the encoder is byte-identical to whatever
+ * produced the file (key order, integer formatting, etc.) — hashing the
+ * original slice sidesteps that assumption entirely.
+ *
+ * Throws if `b` is not a dict at `pos`, or if `key` is not present.
+ */
+export function bencode_extract_raw_value(b: Uint8Array, pos: number, key: string): Uint8Array {
+  if (b.at(pos) !== "d".codePointAt(0)) {
+    throw new Error("no bencode dictionary found");
+  }
+  let p = pos + 1;
+  let k: BencodeVal, v: BencodeVal;
+  while (b.at(p) !== "e".codePointAt(0)) {
+    [k, p] = bencode_decode_next_elem(b, p);
+    if (!(k instanceof Uint8Array)) {
+      throw new Error("map key is not a string");
+    }
+    const kstr = bytesToString(k);
+    const start = p;
+    [v, p] = bencode_decode_next_elem(b, p);
+    if (kstr === key) {
+      return b.slice(start, p);
+    }
+  }
+  throw new Error(`key '${key}' not found in dictionary`);
 }
 
 function bencode_decode_list(b: Uint8Array, pos: number): [BencodeVal, number] {

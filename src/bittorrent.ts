@@ -31,15 +31,11 @@ export function read_bittorrent_file(filepath: string): [Bittorrent, Uint8Array]
   const data = fs.readFileSync(filepath);
   const b = bc.bencode_decode_buff(data);
   u.throw_if_val_wrong_type(b instanceof Map);
+  const raw_info = bc.bencode_extract_raw_value(data, 0, "info");
   const info_hash = c.createHash("sha1")
-    .update(extract_info(b as bc.BencodeDict))
+    .update(raw_info)
     .digest();
   return [bencodeVal_to_bittorrent(b), info_hash];
-}
-
-function extract_info(d: bc.BencodeDict): string {
-  u.throw_if_not_has(d, "info");
-  return bc.bencode_encode(d.get("info")! as bc.BencodeDict);
 }
 
 export function bencodeVal_to_bittorrent(b: bc.BencodeVal): Bittorrent {
@@ -98,7 +94,13 @@ export function bencodeVal_to_MultipleFilesInto(b: bc.BencodeVal): MultipleFiles
 }
 
 export function is_single_file_bittorrent(b: Bittorrent): boolean {
-  return "files" in b.info;
+  return !("files" in b.info);
+}
+
+export function total_length(b: Bittorrent): number {
+  return is_single_file_bittorrent(b)
+    ? (b.info as SingleFileInfo).len
+    : (b.info as MultipleFilesInfo).files.reduce((sum, f) => sum + f.len, 0);
 }
 
 function is_single_file_torrent(b: bc.BencodeVal): boolean {
