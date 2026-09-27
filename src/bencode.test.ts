@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import { Buffer } from "node:buffer";
 import assert from "node:assert/strict";
-import { bencode_encode, bencode_decode, BencodeVal } from "./bencode.js";
+import { bencode_encode, bencode_decode, bencode_decode_buff, bencode_extract_raw_value, BencodeVal } from "./bencode.js";
 
 const throws = (fn: () => unknown) => assert.throws(fn);
 
@@ -201,6 +201,22 @@ describe("dictionaries", () => {
     throws(() => bencode_decode("d3:zooi1e3:anti2ee"));
   });
 
+  it("accepts correctly-ordered keys of different lengths (regression: real tracker response shape)", () => {
+    // Regression test: the ordering check used to compare Uint8Array keys
+    // with `<`, which coerces via toString() into a comma-joined-decimal
+    // string rather than true byte order. That happened to work when
+    // comparing same-length keys (like "zoo" vs "ant" above) but broke on
+    // keys of different lengths — exactly this real tracker-response shape
+    // (complete < incomplete < interval < peers, alphabetically correct,
+    // was wrongly rejected as "not ordered").
+    const bstr = "d8:completei1e10:incompletei0e8:intervali1800e5:peers0:e";
+    assert.doesNotThrow(() => bencode_decode(bstr));
+  });
+
+  it("still rejects genuinely out-of-order keys of different lengths", () => {
+    throws(() => bencode_decode("d6:zzzzzzi1e3:aaai2ee"));
+  });
+
   it("throws on missing value for a key", () => {
     throws(() => bencode_decode("d3:fooe"));
   });
@@ -246,6 +262,63 @@ describe("complex structures", () => {
 
   it("decodes deeply nested structure", () => {
     assert.deepEqual(bencode_decode("llli42eeee"), [[[42]]]);
+  });
+});
+
+// -- Input-type independence (Buffer vs plain Uint8Array)
+//
+// bencode_decode_buff must behave identically whether given a Node
+// Buffer or a plain Uint8Array. Uint8Array.prototype.toString() is
+// NOT the same as Buffer's — it joins bytes as comma-separated
+// decimals rather than decoding as text — so anything that called
+// .toString() directly on a slice without going through Buffer.from()
+// first would silently corrupt on non-Buffer input.
+
+describe("plain Uint8Array input (not Buffer)", () => {
+  it("decodes an integer correctly from a plain Uint8Array", () => {
+    const buf = Buffer.from("i42e");
+    assert.deepEqual(bencode_decode_buff(new Uint8Array(buf)), 42);
+  });
+
+  it("decodes a string length correctly from a plain Uint8Array", () => {
+    const buf = Buffer.from("7:bencode");
+    assert.deepEqual(bencode_decode_buff(new Uint8Array(buf)), new Uint8Array(Buffer.from("bencode")));
+  });
+
+  it("decodes dict keys correctly from a plain Uint8Array", () => {
+    const buf = Buffer.from("d7:meaningi42e4:wiki7:bencodee");
+    assert.deepEqual(
+      bencode_decode_buff(new Uint8Array(buf)),
+      new Map<string, BencodeVal>([
+        ["meaning", 42],
+        ["wiki", new Uint8Array(Buffer.from("bencode"))],
+      ])
+    );
+  });
+});
+
+// -- Raw value extraction (for info-hash computation)
+
+describe("extract raw value", () => {
+  it("extracts a simple integer value's raw bytes", () => {
+    const b = Buffer.from("d4:infoi42ee");
+    assert.deepEqual(bencode_extract_raw_value(b, 0, "info"), Buffer.from("i42e"));
+  });
+
+  it("extracts a nested dict's raw bytes unchanged", () => {
+    const raw = "d6:lengthi1024e4:name8:test.txte";
+    const b = Buffer.from(`d4:info${raw}e`);
+    assert.deepEqual(bencode_extract_raw_value(b, 0, "info"), Buffer.from(raw));
+  });
+
+  it("throws when the key is missing", () => {
+    const b = Buffer.from("d3:fooi1ee");
+    throws(() => bencode_extract_raw_value(b, 0, "info"));
+  });
+
+  it("throws when not given a dict", () => {
+    const b = Buffer.from("li1ee");
+    throws(() => bencode_extract_raw_value(b, 0, "info"));
   });
 });
 

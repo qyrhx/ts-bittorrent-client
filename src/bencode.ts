@@ -4,6 +4,10 @@ import fs from "node:fs";
 export type BencodeVal = Uint8Array | number | BencodeDict | BencodeVal[];
 export type BencodeDict = Map<string, BencodeVal>;
 
+// Uint8Array.prototype.toString() (unlike Buffer's) is inherited from
+// TypedArray/Array and joins bytes as comma-separated decimals, not text.
+// Always route through Buffer.from(...) so decoding works the same whether
+// callers pass a real Buffer or a plain Uint8Array.
 function bytesToString(b: Uint8Array): string {
   return Buffer.from(b).toString();
 }
@@ -92,6 +96,17 @@ function bencode_decode_str(b: Uint8Array, pos: number): [BencodeVal, number] {
   return [str, mid+len+1];
 }
 
+// Uint8Array comparison with `<`/`>` coerces via toString() (the same
+// comma-joined-decimal trap as bytesToString above was fixing), which does
+// NOT produce correct lexicographic byte ordering. Compare bytes directly.
+function compare_bytes(a: Uint8Array, b: Uint8Array): number {
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return a.length - b.length;
+}
+
 function bencode_decode_dict(b: Uint8Array, pos: number): [BencodeVal, number] {
   if (b.at(pos) !== "d".codePointAt(0)) {
     throw new Error("no bencode dictionary found");
@@ -110,7 +125,7 @@ function bencode_decode_dict(b: Uint8Array, pos: number): [BencodeVal, number] {
       throw new Error("duplicate key");
     }
 
-    if (k < prevk) {
+    if (compare_bytes(k, prevk) < 0) {
       throw new Error("keys not ordered");
     }
     prevk = k;
